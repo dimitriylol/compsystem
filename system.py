@@ -5,13 +5,10 @@ from threading import Thread
 from random import *
 
 
-class Task (Thread):
-    def __init__(self, target, args):
-        Thread.__init__(target=target, args=args)
+class Task ():
+    def __init__(self):
         self.lst_suitable_proc = Task.generate_suitable_proc()
         self.number_operations = Task.generate_number_operations()
-        # Task.setDaemon(True)      READ DOC ABOUT Daemon threads
-        Task.start()
 
     @staticmethod
     def generate_suitable_proc():
@@ -25,10 +22,12 @@ class Task (Thread):
         return randint(100,200)             # so the dumbest processor will handle it. 100 - just my random
 
 
-class Processor ():
-    def __init__(self, id, power):
+class Processor (Thread):
+    def __init__(self, target, args, id, power):
+        Thread.__init__(target=target, args=args)
         self.id = id
         self.power = power  # power - number of operations per ms
+        self.start()
 
     def worker(self, task_queue):
         print "start work ", self.id, " processor"
