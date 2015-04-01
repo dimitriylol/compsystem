@@ -60,7 +60,7 @@ class TaskQueue(Thread):
 
 
 class Processor (Thread):
-    def __init__(self, proc_id, power, manage_queue, queue_lock, cond, queue):   # management - name function: FIFO and others algorithms
+    def __init__(self, proc_id, power, manage_queue, queue_lock, cond, queue):
         Thread.__init__(self)
         self.id = proc_id
         self.power = power  # power - number of operations per ms
@@ -68,6 +68,7 @@ class Processor (Thread):
         self.queue_lock = queue_lock
         self.control = cond
         self.queue = queue
+        self.done_operations = 0
         self.daemon = True
 
     def run(self):
@@ -89,13 +90,14 @@ class WorkerProcessor (Processor):
             if self.id in task.lst_suitable_proc:
                 print "working ", self.id, " processor. Suitable are", task.lst_suitable_proc
                 self.queue_lock.release()
+                self.done_operations += task.number_operations
                 time.sleep(task.number_operations/(self.power*1000))     # sleep() get in seconds, our task in ms
             else:
                 self.queue.put(task)
                 self.queue_lock.release()
         else:
-            print "Queue empty"
-            self.control.release()
+            # print "Queue empty"
+            self.queue_lock.release()
 
     def worker_planner(self):   # control is pair of conditional and lock for queue
         """worker_planner just executing task when condition is send"""
@@ -104,6 +106,7 @@ class WorkerProcessor (Processor):
         self.control.wait()
         print "GET NOTIFY in worker", self.id
         print "task is", self.task
+        self.done_operations += self.task.number_operations
         time.sleep(self.task.number_operations/(self.power*1000))     # sleep() get in seconds, our task in ms
         self.task = False
         self.control.release()
@@ -192,6 +195,10 @@ def main_func_planner(lst_power):
     while not task_queue.done:  # wait for passing 10 seconds
         pass
     print "end of everything!"
+    result_operations = 0
+    for x in lst_processors:
+        result_operations += x.done_operations
+    print "Result is", result_operations
     return
 
 
@@ -210,8 +217,12 @@ def main_func_fifo(lst_power):
     while not task_queue.done:  # wait for passing 10 seconds
         pass
     print "end of everything!"
+    result_operations = 0
+    for x in lst_processors:
+        result_operations += x.done_operations
+    print "Result is", result_operations
     return
 
 
 # main_func_fifo([2, 4, 6, 8, 10])
-main_func_planner([2, 4, 6, 8, 10])
+# main_func_planner([2, 4, 6, 8, 10])
