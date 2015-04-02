@@ -113,8 +113,8 @@ class WorkerProcessor (Processor):
 
 
 class PlanningProcessor (Processor):
-    def __init__(self, proc_id, manage_queue, queue_lock, lst_cond, lst_processors, queue):
-        Processor.__init__(self, proc_id, 0, manage_queue, queue_lock, lst_cond, queue)
+    def __init__(self, proc_id, power, manage_queue, queue_lock, lst_cond, lst_processors, queue):
+        Processor.__init__(self, proc_id, power, manage_queue, queue_lock, lst_cond, queue)
         self.task = True
         self.lst_processors = lst_processors
         self.start()
@@ -179,6 +179,7 @@ def main_func_planner(lst_power):
     for x in xrange(5):
         if lst_power[x] == 0:
             lst_processors.append(PlanningProcessor(x,
+                                                    lst_power[x],
                                                     PlanningProcessor.planner,
                                                     queue_lock,
                                                     lst_cond,
@@ -224,5 +225,102 @@ def main_func_fifo(lst_power):
     return
 
 
+class PlanCalcProcessor(PlanningProcessor):
+    def __init__(self, proc_id, power, manage_queue, queue_lock, lst_cond, lst_processors, queue):
+        PlanningProcessor.__init__(self, proc_id, power, manage_queue, queue_lock, lst_cond, lst_processors, queue)
+        self.task = []
+        self.control[self.id] = False
+
+    def planner_helper(self, lst_task):   # return True if sends task to processors and False if doesn't
+        task_send = False
+        print "list of tasks", lst_task
+        print "begin planner helper; finding suitable proc in", lst_task[0].lst_suitable_proc
+        for id_suitable_proc in lst_task[-1].lst_suitable_proc:
+            if not self.lst_processors[id_suitable_proc].task:
+                if id_suitable_proc == self.id:
+                    self.task.append(lst_task.pop())
+                    self.control[self.id] = True
+                else:
+                    self.lst_processors[id_suitable_proc].task = lst_task.pop()
+                    print "find not busy processor", id_suitable_proc, " and sending notify to worker"
+                    self.control[id_suitable_proc].acquire()
+                    self.control[id_suitable_proc].notify()
+                    self.control[id_suitable_proc].release()
+                task_send = True
+                map(lambda item: self.queue.put(item), lst_task)
+                break
+            else:
+                print "This processor is busy", id_suitable_proc
+        if not self.queue.empty():
+            if task_send:
+                return True
+            else:
+                print "not find free processor for that task"
+                lst_task.append(self.queue.get())
+                self.planner_helper(lst_task)
+        else:       # if sort out all queue and won't be free suitable processors. HIGHLY UNLIKELY
+            print "Queue has task only for busy processors"
+            map(lambda item: self.queue.put(item), lst_task)
+            return False
+
+    def worker_planner(self):
+        start_time = time.time()
+        if self.control[self.id]:
+            print "Planner working"
+            print "task is", self.task
+            while self.task and time.time() - start_time < 0.02:
+                task = self.task.pop()
+                self.done_operations += task.number_operations
+                time.sleep(task.number_operations/(self.power*1000))     # sleep() get in seconds, our task in ms
+                self.control[self.id] = False
+        else:
+            print "There isn't task for planner"
+
+    def calc_and_plan(self):
+        start_time = time.time()
+        while time.time() - start_time < 0.004:
+            print "Start planning"
+            self.planner()
+            print "End planning"
+        print "Start executing"
+        self.worker_planner()
+        print "End executing"
+
+
+def main_calc_planner(lst_power):
+    lst_cond = [Condition(Lock()) for x in xrange(5)]
+    index_max_elem = lst_power.index(max(lst_power))
+    lst_processors = []
+    queue_lock = Lock()
+    work_queue = Queue()
+    task_queue = TaskQueue(1, work_queue, queue_lock)
+    queue_lock.acquire()
+    for x in xrange(5):
+        if x == index_max_elem:
+            lst_processors.append(PlanCalcProcessor(x,
+                                                    lst_power[x],
+                                                    PlanCalcProcessor.calc_and_plan,
+                                                    queue_lock,
+                                                    lst_cond,
+                                                    lst_processors,
+                                                    work_queue))
+        else:
+            lst_processors.append(WorkerProcessor(x,
+                                                  lst_power[x],
+                                                  WorkerProcessor.worker_planner,
+                                                  queue_lock,
+                                                  lst_cond[x],
+                                                  work_queue))
+    queue_lock.release()
+    while not task_queue.done:  # wait for passing 10 seconds
+        pass
+    print "end of everything!"
+    result_operations = 0
+    for x in lst_processors:
+        result_operations += x.done_operations
+    print "Result is", result_operations
+    return
+
+# main_calc_planner([2, 4, 6, 8, 10])
 # main_func_fifo([2, 4, 6, 8, 10])
 # main_func_planner([2, 4, 6, 8, 10])
